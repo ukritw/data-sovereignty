@@ -8,27 +8,53 @@
   A mem_limit on the service alone does not prevent that; it only decides who
   does the killing. The server has to be told its real budget, and that budget
   has to sit comfortably below the container limit so a spike has somewhere to
-  go. Caches are trimmed for the same reason: on a laptop this warehouse holds
-  a few hundred thousand rows, not a few billion.
+  go.
+
+  This file is the one deploy artefact laptop and production both mount, so
+  none of these can be a bare hardcoded number — a value sized for production
+  is, by construction, wrong for a laptop's smaller container, and the other
+  direction OOM'd a real backfill. Every tunable below is `from_env`, mirroring
+  how CLICKHOUSE_MEM_LIMIT already parameterizes the container's own limit in
+  docker-compose.yml: a laptop-safe inline default here, overridable per host
+  via the matching CLICKHOUSE_* variable in .env. A laptop that never sets that
+  variable gets the small, original values; production sets them once and gets
+  a budget sized for its own container limit. Keep the two in sync yourself —
+  ClickHouse has no way to derive one from the other.
 -->
 <clickhouse>
-    <!-- Hard ceiling for the whole server. Container limit is 3g, so this
-         leaves headroom for a spike rather than sitting right at the edge.
+    <!-- Hard ceiling for the whole server. Must sit comfortably below whatever
+         CLICKHOUSE_MEM_LIMIT sets the container to — confirm with `docker
+         inspect ... HostConfig.Memory`, don't assume it from this file or from
+         .env's comments. The 2g inline default matches CLICKHOUSE_MEM_LIMIT's
+         own 3g default with the same ~1g spike headroom; a host that raises
+         one must raise the other, in .env, keeping the same headroom ratio.
 
          Do NOT also set max_server_memory_usage_to_ram_ratio to 0 hoping to
          disable the ratio: ClickHouse reads 0 as "no cap" and it wins over the
          explicit byte value, which is how this container got OOM-killed even
          with the limit set. Leaving the ratio at its default is correct — the
          smaller of the two applies. -->
-    <max_server_memory_usage>2000000000</max_server_memory_usage>
+    <max_server_memory_usage from_env="CLICKHOUSE_SERVER_MEMORY_USAGE" replace="1">2000000000</max_server_memory_usage>
 
-    <mark_cache_size>268435456</mark_cache_size>
-    <uncompressed_cache_size>134217728</uncompressed_cache_size>
+    <!-- Trimmed to laptop scale by default — a few hundred thousand rows, not
+         a few billion. Raise alongside max_server_memory_usage on a host with
+         real headroom; a bigger ceiling with laptop-sized caches leaves query
+         performance on the table for no memory-safety reason. -->
+    <mark_cache_size from_env="CLICKHOUSE_MARK_CACHE_SIZE" replace="1">268435456</mark_cache_size>
+    <uncompressed_cache_size from_env="CLICKHOUSE_UNCOMPRESSED_CACHE_SIZE" replace="1">134217728</uncompressed_cache_size>
 
     <!-- One concurrent query is plenty for a single-pipeline stack, and it
-         keeps a heavy transform from competing with an ingest. -->
+         keeps a heavy transform from competing with an ingest. Not sized per
+         host — this is about serialization, not memory, so it stays fixed. -->
     <max_concurrent_queries>8</max_concurrent_queries>
 
+    <!-- Per-query, not per-server — every failure in the resumes incident was
+         "Memory limit (total) exceeded" (max_server_memory_usage, above), not
+         this one, consistent with the crash being a background MergeTree merge
+         rather than a foreground query bound by a session profile. Left fixed
+         rather than from_env'd: nesting from_env under <profiles><default>
+         hit a ClickHouse config-preprocessing error this file doesn't need to
+         solve, since these settings were never the actual constraint. -->
     <profiles>
         <default>
             <max_memory_usage>1500000000</max_memory_usage>

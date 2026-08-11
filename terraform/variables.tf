@@ -59,16 +59,31 @@ variable "associate_public_ip" {
 
 variable "instance_type" {
   description = <<-EOT
-    Graviton, 4 vCPU / 16 GB. The memory budget is tight but closes with the
-    Metabase cap in docker-compose.yml: ClickHouse 6g, Metabase ~3g, four
-    Airflow services ~3g, two Postgres ~0.5g, ingest bursts ~1.5g, host ~1g.
-    Step up to r8g.xlarge (32 GB) when sources are added, not before.
+    Graviton, 4 vCPU / 32 GB. Stepped up from m8g.xlarge (16 GB) after a
+    full-history Lever `resumes` backfill OOM'd ClickHouse — not the "sources
+    added" trigger this comment used to name, but the same budget-outgrew-the-
+    box shape. The old m8g.xlarge line-item budget (ClickHouse 6g, Metabase
+    ~3g, four Airflow services ~3g, two Postgres ~0.5g, ingest bursts ~1.5g,
+    host ~1g) never actually matched docker-compose.yml's real defaults — four
+    Airflow services at AIRFLOW_MEM_LIMIT's own 1500m default is 6g, not 3g,
+    and CLICKHOUSE_MEM_LIMIT in production's .env was 5g, not the 6g named here —
+    the totals happened to land close enough (~15g of 16g) that the drift went
+    unnoticed. New budget, sized against what is actually configured rather
+    than restated from memory: ClickHouse 16g (mem_limit in docker-compose.yml,
+    set via CLICKHOUSE_MEM_LIMIT in .env — verify with `docker inspect ...
+    HostConfig.Memory`, not this comment), the four Airflow services and
+    Metabase left at their proven values (6g + 2g, unchanged — neither was
+    implicated in the incident), two Postgres still unbounded (small metadata
+    stores), leaving ~5g of host/Docker overhead headroom — a wider margin
+    than the old setup's ~1g.
 
     Stay on arm64. Switching architectures invalidates every image built and
-    pulled into /data/docker and forces a full rebuild.
+    pulled into /data/docker and forces a full rebuild. r8g is the same family
+    switch as m8g -> r8g: still Graviton, just memory- instead of
+    compute-optimized at the same vCPU count.
   EOT
   type        = string
-  default     = "m8g.xlarge"
+  default     = "r8g.xlarge"
 }
 
 variable "ami_id" {

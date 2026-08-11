@@ -145,6 +145,15 @@ services:
       CLICKHOUSE_DB: ${WAREHOUSE_DB}
       # Lets the init SQL below issue CREATE DATABASE and GRANT.
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+      # Read by low-memory.xml's `from_env` attributes. Defaults here match
+      # that file's own inline fallback (laptop scale) and CLICKHOUSE_MEM_LIMIT's
+      # 3g default — a host that raises CLICKHOUSE_MEM_LIMIT in .env must raise
+      # these alongside it, keeping the same headroom ratio below the container
+      # limit. Always set (never left for ClickHouse to default on its own),
+      # so behavior does not depend on from_env's fallback-when-absent case.
+      CLICKHOUSE_SERVER_MEMORY_USAGE: ${CLICKHOUSE_SERVER_MEMORY_USAGE:-2000000000}
+      CLICKHOUSE_MARK_CACHE_SIZE: ${CLICKHOUSE_MARK_CACHE_SIZE:-268435456}
+      CLICKHOUSE_UNCOMPRESSED_CACHE_SIZE: ${CLICKHOUSE_UNCOMPRESSED_CACHE_SIZE:-134217728}
     healthcheck:
       # /ping answers before the server will accept queries on 9000, but it is
       # the only check that needs no credentials.
